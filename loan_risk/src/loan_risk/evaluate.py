@@ -34,15 +34,6 @@ def calibration_table(y, p, n_bins: int = 10) -> pd.DataFrame:
     return df.groupby("bin").agg(n=("y", "size"), mean_pred=("p", "mean"), observed=("y", "mean"))
 
 
-def univariate_auc(x: pd.Series, y: pd.Series) -> float:
-    """Direction-free single-feature AUC (categoricals target-rate encoded, NaN -> median)."""
-    if not pd.api.types.is_numeric_dtype(x):
-        x = x.astype(str).map(y.groupby(x.astype(str)).mean())
-    x = x.fillna(x.median())
-    a = roc_auc_score(y, x)
-    return float(max(a, 1 - a))
-
-
 def sagemaker_model_quality(m: dict) -> dict:
     """Format metrics as SageMaker Model Registry 'model quality' JSON (shown in Studio)."""
     return {"binary_classification_metrics": {

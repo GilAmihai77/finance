@@ -14,14 +14,14 @@ from .history import (ID, bureau_features, credit_card_features, installments_fe
 HISTORY_COLUMNS = {
     "bureau": ["SK_ID_CURR", "SK_ID_BUREAU", "CREDIT_ACTIVE", "CREDIT_DAY_OVERDUE",
                "AMT_CREDIT_SUM_DEBT", "DAYS_CREDIT"],
-    "bureau_balance": ["SK_ID_BUREAU", "STATUS"],
+    "bureau_balance": ["SK_ID_BUREAU", "STATUS", "MONTHS_BALANCE"],
     "previous_application": ["SK_ID_CURR", "NAME_CONTRACT_STATUS", "AMT_APPLICATION", "AMT_CREDIT",
                              "DAYS_DECISION", "CNT_PAYMENT"],
     "installments_payments": ["SK_ID_CURR", "DAYS_INSTALMENT", "DAYS_ENTRY_PAYMENT", "AMT_INSTALMENT",
                               "AMT_PAYMENT"],
     "POS_CASH_balance": ["SK_ID_CURR", "SK_DPD", "SK_DPD_DEF", "MONTHS_BALANCE"],
     "credit_card_balance": ["SK_ID_CURR", "AMT_BALANCE", "AMT_CREDIT_LIMIT_ACTUAL", "SK_DPD_DEF",
-                            "AMT_DRAWINGS_CURRENT"],
+                            "AMT_DRAWINGS_CURRENT", "MONTHS_BALANCE"],
 }
 
 

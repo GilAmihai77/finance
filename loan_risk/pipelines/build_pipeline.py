@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import boto3
@@ -18,6 +19,7 @@ from sagemaker.processing import FrameworkProcessor, ProcessingInput, Processing
 from sagemaker.sklearn.estimator import SKLearn
 from sagemaker.sklearn.model import SKLearnModel
 from sagemaker.workflow.condition_step import ConditionStep
+from sagemaker.workflow.execution_variables import ExecutionVariables
 from sagemaker.workflow.conditions import ConditionGreaterThanOrEqualTo
 from sagemaker.workflow.fail_step import FailStep
 from sagemaker.workflow.functions import Join, JsonGet
@@ -29,6 +31,9 @@ from sagemaker.workflow.properties import PropertyFile
 from sagemaker.workflow.steps import CacheConfig, ProcessingStep, TrainingStep
 
 SRC = str(Path(__file__).resolve().parents[1] / "src")   # shipped to every job: package + entry scripts
+sys.path.insert(0, SRC)
+from loan_risk import load_config  # noqa: E402
+
 FRAMEWORK = "1.2-1"
 P = "/opt/ml/processing"
 
@@ -37,12 +42,15 @@ def get_pipeline(role: str, bucket: str, region: str, prefix: str, name: str, mo
     sess = PipelineSession(boto_session=boto3.Session(region_name=region), default_bucket=bucket)
     base = f"s3://{bucket}/{prefix}"
 
-    input_uri = ParameterString("InputDataUri", default_value=f"{base}/raw")
+    # Raw data is stored as immutable snapshots: new data goes to a new prefix (raw/v2, ...), passed as
+    # InputDataUri. Caching keys on step arguments, not on S3 contents, so overwriting raw/v1 in place
+    # would let BuildFeatures be served from cache with stale features.
+    input_uri = ParameterString("InputDataUri", default_value=f"{base}/raw/v1")
     proc_type = ParameterString("ProcessingInstanceType", default_value="ml.m5.2xlarge")
     train_type = ParameterString("TrainingInstanceType", default_value="ml.m5.2xlarge")
-    auc_gate = ParameterFloat("AucThreshold", default_value=0.77)
+    auc_gate = ParameterFloat("AucThreshold", default_value=float(load_config()["evaluation"]["auc_gate"]))
     approval = ParameterString("ModelApprovalStatus", default_value="PendingManualApproval")
-    cache = CacheConfig(enable_caching=True, expire_after="P30D")   # re-runs skip unchanged steps
+    cache = CacheConfig(enable_caching=True, expire_after="P30D")   # re-runs (e.g. new gate) skip unchanged steps
 
     def processor(job):
         return FrameworkProcessor(estimator_cls=SKLearn, framework_version=FRAMEWORK, py_version="py3",
@@ -56,7 +64,11 @@ def get_pipeline(role: str, bucket: str, region: str, prefix: str, name: str, mo
             code="entry_preprocess.py", source_dir=SRC,
             inputs=[ProcessingInput(source=input_uri, destination=f"{P}/input/raw")],
             outputs=[ProcessingOutput(output_name=n, source=f"{P}/output/{n}",
-                                      destination=Join(on="/", values=[base, "features", n]))
+                                      # one folder per execution: no clashes, and lineage of which
+                                      # features trained which model (on a cache hit the earlier
+                                      # execution's folder is reused, consistently)
+                                      destination=Join(on="/", values=[base, "features",
+                                                                       ExecutionVariables.PIPELINE_EXECUTION_ID, n]))
                      for n in ("train", "holdout", "score", "history")],
         ),
         cache_config=cache,
@@ -135,6 +147,8 @@ def main():
     ap.add_argument("--auc-threshold", type=float, default=None, help="override the gate for this execution")
     ap.add_argument("--print-definition", action="store_true")
     a = ap.parse_args()
+    if not a.region:
+        ap.error("no AWS region: pass --region or run 'aws configure set region il-central-1'")
 
     bucket = a.bucket or sagemaker.Session(boto3.Session(region_name=a.region)).default_bucket()
     pipe = get_pipeline(a.role_arn, bucket, a.region, a.prefix, a.name, a.model_group)

@@ -29,7 +29,13 @@ def main():
     tar = model_dir / "model.tar.gz"
     if tar.exists():                       # SageMaker hands over the packed training artifact
         with tarfile.open(tar) as t:
-            t.extractall(model_dir)
+            if hasattr(tarfile, "data_filter"):   # Python >= 3.9.17 / 3.12: block path traversal
+                t.extractall(model_dir, filter="data")
+            else:
+                root = model_dir.resolve()
+                if any(not (model_dir / m.name).resolve().is_relative_to(root) for m in t.getmembers()):
+                    raise ValueError("unsafe path in model.tar.gz")
+                t.extractall(model_dir)
     model = LoanRiskModel.load(model_dir)
 
     ho = read_dir(a.holdout)

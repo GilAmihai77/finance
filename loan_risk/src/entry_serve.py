@@ -18,7 +18,7 @@ def model_fn(model_dir):
 
 
 def input_fn(body, content_type="application/json"):
-    if content_type != "application/json":
+    if content_type.split(";")[0].strip().lower() != "application/json":
         raise ValueError(f"Unsupported content type {content_type}")
     payload = json.loads(body)
     if isinstance(payload, dict):

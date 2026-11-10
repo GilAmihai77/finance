@@ -31,7 +31,7 @@ class LoanRiskModel:
     def score_features(self, features: pd.DataFrame, explain: bool = True, id_col: str = "SK_ID_CURR") -> pd.DataFrame:
         """`features` = output of build_features (already prepped)."""
         X = self.spec.transform(features)
-        p = self.booster.predict(X)
+        p = self.booster.predict(X)                       # = predict_pd, but X is reused for reason codes
         out = pd.DataFrame({"pd": p, "decision": decide(p, self.thresholds)}, index=features.index)
         if id_col in features.columns:
             out.insert(0, id_col, features[id_col].values)

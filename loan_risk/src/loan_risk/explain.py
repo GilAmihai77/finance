@@ -15,6 +15,7 @@ def shap_values(booster: lgb.Booster, X: pd.DataFrame) -> pd.DataFrame:
 
 
 def global_importance(booster: lgb.Booster, X: pd.DataFrame) -> pd.Series:
+    """Mean |SHAP| per feature (log-odds). Less biased than split gain towards high-cardinality features."""
     return shap_values(booster, X).abs().mean().sort_values(ascending=False)
 
 
@@ -30,11 +31,11 @@ def _json_value(v):
 
 def reason_codes(booster: lgb.Booster, X: pd.DataFrame, k: int = 3) -> list:
     """Top-k features pushing each applicant towards default (for adverse-action notices)."""
-    sv = shap_values(booster, X)
+    sv = booster.predict(X, pred_contrib=True)[:, :-1]
+    top = np.argsort(-sv, axis=1)[:, :k]                      # one sort for all rows
+    cols = X.columns
     out = []
-    for i in range(len(X)):
-        row = sv.iloc[i]
-        top = row[row > 0].sort_values(ascending=False).head(k)
-        out.append([{"feature": f, "value": _json_value(X.iloc[i][f]), "impact": round(float(s), 4)}
-                    for f, s in top.items()])
+    for i, idx in enumerate(top):
+        out.append([{"feature": cols[j], "value": _json_value(X.iat[i, j]), "impact": round(float(sv[i, j]), 4)}
+                    for j in idx if sv[i, j] > 0])           # only features pushing towards default
     return out

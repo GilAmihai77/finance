@@ -13,6 +13,7 @@ from sklearn.model_selection import StratifiedKFold
 
 from .decision import choose_thresholds, cost_table
 from .evaluate import calibration_table, classification_metrics
+from .explain import global_importance
 from .features import FeatureSpec
 from .scoring import META_FILE, MODEL_FILE, SPEC_FILE, THRESH_FILE
 
@@ -67,7 +68,8 @@ def run_training(train_df: pd.DataFrame, config: dict, model_dir: str | Path,
         cost_table(y, oof, thresholds["cost_fn"], thresholds["cost_fp"]).to_csv(r / "threshold_table.csv")
         calibration_table(y, oof).to_csv(r / "calibration_oof.csv")
         gain = pd.Series(booster.feature_importance("gain"), index=spec.features)
-        (gain / gain.sum()).sort_values(ascending=False).rename("gain_share").to_csv(r / "feature_importance.csv")
+        sample = X.sample(min(len(X), 20_000), random_state=mcfg["seed"])
+        pd.DataFrame({"mean_abs_shap": global_importance(booster, sample), "gain_share": gain / gain.sum()})             .sort_values("mean_abs_shap", ascending=False).to_csv(r / "feature_importance.csv")
 
     # SageMaker metric_definitions parse these lines into CloudWatch / Experiments
     print(f"cv_auc={cv_metrics['auc']:.5f}")

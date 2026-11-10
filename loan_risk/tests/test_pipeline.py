@@ -10,7 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from loan_risk import load_config  # noqa: E402
-from loan_risk.decision import APPROVE, REJECT, REVIEW, choose_thresholds, decide  # noqa: E402
+from loan_risk.decision import APPROVE, REJECT, REVIEW, choose_thresholds, cost_table, decide  # noqa: E402
 from loan_risk.features import FeatureSpec, build_features, prep_application  # noqa: E402
 from loan_risk.features.history import bureau_features, installments_features  # noqa: E402
 from loan_risk.scoring import LoanRiskModel  # noqa: E402
@@ -51,16 +51,28 @@ def test_history_one_row_per_client():
     bureau = pd.DataFrame({"SK_ID_CURR": [1, 1, 2], "SK_ID_BUREAU": [10, 11, 12],
                            "CREDIT_ACTIVE": ["Active", "Closed", "Active"], "CREDIT_DAY_OVERDUE": [0, 5, 0],
                            "AMT_CREDIT_SUM_DEBT": [100.0, 50.0, np.nan], "DAYS_CREDIT": [-10, -500, -30]})
-    bb = pd.DataFrame({"SK_ID_BUREAU": [10, 10, 11, 12], "STATUS": ["0", "2", "C", "X"]})
+    bb = pd.DataFrame({"SK_ID_BUREAU": [10, 10, 11, 12, 11], "STATUS": ["0", "2", "C", "X", "5"],
+                       "MONTHS_BALANCE": [-2, -1, -3, -1, 1]})        # last row is after the application
     b = bureau_features(bureau, bb)
     assert b.index.is_unique and len(b) == 2
     assert b.loc[1, "BUR_WORST_DPD_STATUS"] == 2 and np.isnan(b.loc[2, "BUR_WORST_DPD_STATUS"])
     assert b.loc[1, "BUR_DEBT_ACTIVE_SUM"] == 100 and b.loc[1, "BUR_ANY_OVERDUE"] == 1
 
-    inst = pd.DataFrame({"SK_ID_CURR": [1, 1], "DAYS_INSTALMENT": [-100.0, -70.0], "DAYS_ENTRY_PAYMENT": [-95.0, -75.0],
-                         "AMT_INSTALMENT": [100.0, 100.0], "AMT_PAYMENT": [100.0, 50.0]})
+    inst = pd.DataFrame({"SK_ID_CURR": [1, 1, 1], "DAYS_INSTALMENT": [-100.0, -70.0, -40.0],
+                         "DAYS_ENTRY_PAYMENT": [-95.0, -75.0, np.nan],          # third instalment never paid
+                         "AMT_INSTALMENT": [100.0, 100.0, 100.0], "AMT_PAYMENT": [100.0, 50.0, np.nan]})
     i = installments_features(inst)
-    assert i.loc[1, "INST_LATE_SHARE"] == 0.5 and i.loc[1, "INST_UNDERPAID_SHARE"] == 0.5
+    assert i.loc[1, "INST_LATE_SHARE"] == 0.5                  # among paid instalments
+    assert i.loc[1, "INST_MISSED_SHARE"] == pytest.approx(1 / 3)
+    assert i.loc[1, "INST_UNDERPAID_SHARE"] == pytest.approx(2 / 3)   # missed counts as underpaid
+
+
+def test_build_features_one_row_per_application():
+    app = make_app(50)
+    hist = pd.DataFrame({"BUR_N_CREDITS": [3.0, 1.0]}, index=pd.Index([100000, 100001], name="SK_ID_CURR"))
+    f = build_features(app, hist)
+    assert len(f) == len(app) and f["SK_ID_CURR"].is_unique
+    assert f.loc[f["SK_ID_CURR"] == 100000, "BUR_N_CREDITS"].item() == 3 and f["BUR_N_CREDITS"].isna().sum() == 48
 
 
 def test_spec_unseen_category_and_missing_column():
@@ -79,7 +91,12 @@ def test_thresholds_ordering_and_bands():
     th = choose_thresholds(y, p, {"cost_fn": 0.6, "cost_fp": 0.12, "review_share": 0.1})
     assert th["t_low"] <= th["threshold"] <= th["t_high"]
     assert abs(th["t_cost"] - th["t_bayes"]) < 0.03         # calibrated -> empirical ~ theoretical
-    assert th["oof_band_shares"]["REVIEW"] == pytest.approx(0.1, abs=0.02)
+    assert th["oof_bands"]["review_share"] == pytest.approx(0.1, abs=0.02)
+    # vectorised cost table == the direct definition
+    t = 0.2; rej = p >= t
+    row = cost_table(y, p, 0.6, 0.12, grid=[t]).loc[t]
+    assert row["reject_rate"] == pytest.approx(rej.mean())
+    assert row["cost_per_app"] == pytest.approx((0.6 * (~rej & (y == 1)).sum() + 0.12 * (rej & (y == 0)).sum()) / len(y))
     d = decide([0.0, th["threshold"], 0.99], th)
     assert d[0] == APPROVE and d[1] in (REVIEW, REJECT) and d[2] == REJECT
 
@@ -102,9 +119,8 @@ def test_train_score_roundtrip(tmp_path):
     assert set(s_raw["decision"]) <= {APPROVE, REVIEW, REJECT}
     assert all(len(rc) <= 3 for rc in s_raw["reason_codes"])
 
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
     import entry_serve
     body = json.dumps({"instances": json.loads(raw.to_json(orient="records", double_precision=15))})
-    out, ctype = entry_serve.output_fn(entry_serve.predict_fn(entry_serve.input_fn(body), m))
+    out, ctype = entry_serve.output_fn(entry_serve.predict_fn(entry_serve.input_fn(body, "application/json; charset=utf-8"), m))
     preds = json.loads(out)["predictions"]
     np.testing.assert_allclose([x["pd"] for x in preds], s_raw["pd"], rtol=1e-9)   # JSON round trip

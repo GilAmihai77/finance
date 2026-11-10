@@ -24,6 +24,13 @@ def packages(sm, group, status=None):
     return sm.list_model_packages(**kw)["ModelPackageSummaryList"]
 
 
+def latest(sm, group, status) -> str:
+    found = packages(sm, group, status)
+    if not found:
+        raise SystemExit(f"No model package with status {status} in group '{group}'. Run 'list' to see what exists.")
+    return found[0]["ModelPackageArn"]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("action", choices=["list", "approve", "deploy", "delete"])
@@ -36,6 +43,8 @@ def main():
     ap.add_argument("--serverless", action="store_true", help="serverless endpoint (no data capture)")
     ap.add_argument("--prefix", default="loan-risk")
     a = ap.parse_args()
+    if not a.region:
+        ap.error("no AWS region: pass --region or run 'aws configure set region il-central-1'")
 
     boto = boto3.Session(region_name=a.region)
     sm = boto.client("sagemaker")
@@ -48,7 +57,7 @@ def main():
                   f"  {p['ModelPackageArn']}\n     metrics: {metrics}")
 
     elif a.action == "approve":
-        arn = a.arn or packages(sm, a.model_group, "PendingManualApproval")[0]["ModelPackageArn"]
+        arn = a.arn or latest(sm, a.model_group, "PendingManualApproval")
         sm.update_model_package(ModelPackageArn=arn, ModelApprovalStatus="Approved",
                                 ApprovalDescription="Reviewed holdout AUC/KS, calibration and decision bands")
         print("Approved:", arn)
@@ -56,7 +65,7 @@ def main():
     elif a.action == "deploy":
         if not a.role_arn:
             ap.error("--role-arn is required for deploy")
-        arn = a.arn or packages(sm, a.model_group, "Approved")[0]["ModelPackageArn"]
+        arn = a.arn or latest(sm, a.model_group, "Approved")
         sess = sagemaker.Session(boto)
         model = ModelPackage(role=a.role_arn, model_package_arn=arn, sagemaker_session=sess)
         print(f"Deploying {arn} -> {a.endpoint_name} (takes ~5-8 min)")

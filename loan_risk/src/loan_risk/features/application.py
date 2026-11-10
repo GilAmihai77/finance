@@ -9,10 +9,6 @@ DAYS_EMPLOYED_PLACEHOLDER = 365243   # ~1000 years; used for pensioners / unempl
 RAW_USED = ["DAYS_EMPLOYED", "DAYS_BIRTH", "AMT_CREDIT", "AMT_INCOME_TOTAL", "AMT_ANNUITY",
             "AMT_GOODS_PRICE", "EXT_SOURCE_1", "EXT_SOURCE_2", "EXT_SOURCE_3"]
 
-ENGINEERED = ["DAYS_EMPLOYED_ANOM", "AGE_YEARS", "YEARS_EMPLOYED", "CREDIT_INCOME_RATIO",
-              "ANNUITY_INCOME_RATIO", "CREDIT_TERM", "GOODS_CREDIT_RATIO", "EXT_SOURCE_MEAN"]
-
-
 def prep_application(df: pd.DataFrame) -> pd.DataFrame:
     """Same logic as the EDA notebook's prep(). Tolerates missing columns, which matters at inference time."""
     df = df.copy()
