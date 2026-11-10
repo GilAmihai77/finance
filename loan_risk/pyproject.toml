@@ -1,0 +1,23 @@
+[project]
+name = "loan-risk"
+version = "0.1.0"
+description = "Home Credit default-risk (PD) model with a SageMaker MLOps pipeline"
+requires-python = ">=3.9"
+dependencies = ["pandas>=1.5", "pyarrow>=12,<18", "lightgbm==4.6.0", "scikit-learn>=1.2", "pyyaml"]
+
+[project.optional-dependencies]
+aws = ["sagemaker>=2.230,<3", "boto3"]
+dev = ["pytest", "matplotlib"]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+loan_risk = ["config.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

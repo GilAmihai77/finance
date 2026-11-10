@@ -1,0 +1,39 @@
+# Single config shipped with the package, so local runs and SageMaker jobs read the same settings.
+
+id_col: SK_ID_CURR
+target: TARGET
+
+features:
+  # Excluded from the production model for fair-lending reasons (protected attribute).
+  exclude: [CODE_GENDER]
+
+split:
+  holdout_share: 0.20          # untouched holdout, used only by the evaluation step / quality gate
+  seed: 42
+
+model:
+  n_folds: 5
+  seed: 42
+  num_boost_round: 5000        # upper bound; early stopping picks the real number
+  early_stopping_rounds: 100
+  refit_rounds_multiplier: 1.1 # final model trained on all data with mean(best_iter) * this
+  lgbm_params:                 # same as the EDA notebook (natural class ratio -> calibrated PDs)
+    objective: binary
+    metric: auc
+    learning_rate: 0.05
+    num_leaves: 31
+    feature_fraction: 0.5
+    bagging_fraction: 0.8
+    bagging_freq: 1
+    lambda_l2: 1.0
+    verbose: -1
+
+decision:
+  # Business inputs, expressed as a share of the loan amount:
+  cost_fn: 0.60                # approving a defaulter ~ LGD (loss given default)
+  cost_fp: 0.12                # rejecting a good client ~ lost margin
+  review_share: 0.10           # manual-review band size = underwriter capacity
+  max_approved_default_rate: null   # optional risk-appetite cap, e.g. 0.05
+
+evaluation:
+  auc_gate: 0.77               # pipeline quality gate (overridable as a pipeline parameter)

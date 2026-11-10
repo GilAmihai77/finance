@@ -1,0 +1,6 @@
+# Installed by the SageMaker SKLearn 1.2-1 container (Python 3.9) at job / endpoint start-up.
+# pandas is pinned because the container's own pandas is old.
+pandas==2.0.3
+lightgbm==4.6.0
+pyarrow>=12,<18
+pyyaml
