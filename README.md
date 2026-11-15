@@ -55,27 +55,33 @@ approve every REVIEW case below `t`.
 
 ## Layout
 ```
-src/loan_risk/            package (shipped to every SageMaker job as source_dir)
-  config.yaml             all settings: features to exclude, LGBM params, costs, AUC gate
-  data.py                 parquet/CSV readers, CSV -> parquet
-  features/application.py application cleaning + ratios (365243 placeholder fix, age, credit/income ...)
-  features/history.py     per-client aggregates of the 6 history tables
-  features/build.py       single source of truth for features (processing + serving)
-  features/spec.py        frozen feature contract (columns + categorical levels) -> no train/serve skew
-  train.py                stratified 5-fold CV -> OOF PDs -> thresholds -> refit on all data
-  evaluate.py             AUC, Gini, KS, PR-AUC, Brier, calibration
-  decision.py             cost-based threshold, risk-appetite cap, manual-review band
-  explain.py              TreeSHAP reason codes (LightGBM pred_contrib, no shap dependency)
-  scoring.py              LoanRiskModel: load artifacts, score raw or prepared rows
-src/entry_*.py            SageMaker entry points (same scripts run locally)
-pipelines/build_pipeline.py   SageMaker Pipeline definition
-pipelines/manage_model.py     registry list/approve, deploy, delete
-pipelines/invoke_endpoint.py  send real applications, compare local vs endpoint PDs
-tests/                    unit tests on synthetic data
+home_credit_eda.ipynb     EDA notebook (also downloads the Kaggle data into data/)
+data/                     Kaggle Home Credit CSVs (not in git; Kaggle rules forbid redistribution)
+loan_risk/                the model project
+  pyproject.toml            local install: pip install -e ".[dev,aws]"
+  src/loan_risk/            package (shipped to every SageMaker job as source_dir)
+    config.yaml             all settings: features to exclude, LGBM params, costs, AUC gate
+    data.py                 parquet/CSV readers, CSV -> parquet
+    features/application.py application cleaning + ratios (365243 placeholder fix, age, credit/income ...)
+    features/history.py     per-client aggregates of the 6 history tables
+    features/build.py       single source of truth for features (processing + serving)
+    features/spec.py        frozen feature contract (columns + categorical levels) -> no train/serve skew
+    train.py                stratified 5-fold CV -> OOF PDs -> thresholds -> refit on all data
+    evaluate.py             AUC, Gini, KS, PR-AUC, Brier, calibration
+    decision.py             cost-based threshold, risk-appetite cap, manual-review band
+    explain.py              TreeSHAP reason codes (LightGBM pred_contrib, no shap dependency)
+    scoring.py              LoanRiskModel: load artifacts, score raw or prepared rows
+  src/entry_*.py            SageMaker entry points (same scripts run locally)
+  src/requirements.txt      extra packages pip-installed inside the SageMaker container
+  pipelines/build_pipeline.py   SageMaker Pipeline definition
+  pipelines/manage_model.py     registry list/approve, deploy, delete
+  pipelines/invoke_endpoint.py  send real applications, compare local vs endpoint PDs
+  tests/                    unit tests on synthetic data
 ```
 
 ## Run locally (conda env `loanrisk`)
 ```bash
+cd loan_risk                                                               # all commands run from here
 python -m loan_risk.data --src ../data --dst ../data/parquet               # with PYTHONPATH=src
 python src/entry_preprocess.py --input ../data/parquet --output artifacts/features
 python src/entry_train.py --train artifacts/features/train --model-dir artifacts/model --report-dir artifacts/reports
