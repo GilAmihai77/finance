@@ -70,7 +70,7 @@ approve every REVIEW case below `t`.
 home_credit_eda.ipynb     EDA notebook (also downloads the Kaggle data into data/)
 data/                     Kaggle Home Credit CSVs (not in git; Kaggle rules forbid redistribution)
 loan_risk/                the model project
-  pyproject.toml            local install: pip install -e ".[dev,aws]"
+  pyproject.toml            package + dependencies for local use (see How to run)
   src/loan_risk/            package (shipped to every SageMaker job as source_dir)
     config.yaml             all settings: features to exclude, LGBM params, costs, AUC gate
     data.py                 parquet/CSV readers, CSV -> parquet
@@ -91,17 +91,70 @@ loan_risk/                the model project
   tests/                    unit tests on synthetic data
 ```
 
-## Run locally (conda env `loanrisk`)
+## How to run
+Steps 1–4 run entirely on your own machine and cost nothing. Step 5 (AWS) is optional and costs money.
+
+### 1. Set up Python (once)
+Python 3.9 or newer (developed on 3.11). Use conda or a plain venv, and run from the repo root:
 ```bash
-cd loan_risk                                                               # all commands run from here
-python -m loan_risk.data --src ../data --dst ../data/parquet               # with PYTHONPATH=src
+conda create -n loanrisk python=3.11 && conda activate loanrisk     # or: python -m venv .venv
+pip install -e "./loan_risk[dev]"            # the package + pytest; use [dev,aws] for step 5
+pip install jupyter kaggle seaborn scipy     # only for the EDA notebook
+```
+
+### 2. Get the data (once, about 2.5 GB)
+1. On Kaggle, open the [competition](https://www.kaggle.com/competitions/home-credit-default-risk/data) and accept its rules.
+2. Create a Kaggle API token (Kaggle → Settings → API). Put it in a `.env` file in the repo root as
+   `kaggle_api_token=...`, or use `~/.kaggle/kaggle.json`. `.env` is git-ignored.
+3. Run `home_credit_eda.ipynb` from the repo root. Section 1 downloads the CSVs into `data/`. The rest of
+   the notebook is the exploratory analysis.
+
+### 3. Train and evaluate locally
+All commands run from the `loan_risk/` folder. Outputs go to `loan_risk/artifacts/` (git-ignored).
+```bash
+cd loan_risk
+python -m loan_risk.data --src ../data --dst ../data/parquet                  # CSV -> parquet (once)
 python src/entry_preprocess.py --input ../data/parquet --output artifacts/features
 python src/entry_train.py --train artifacts/features/train --model-dir artifacts/model --report-dir artifacts/reports
 python src/entry_evaluate.py --model artifacts/model --holdout artifacts/features/holdout --output artifacts/evaluation
-python pipelines/invoke_endpoint.py --local-model artifacts/model
-python src/entry_train.py ... --exclude CODE_GENDER,AGE_YEARS          # fairness comparison (--exclude "" = none)
-pytest -q
+python pipelines/invoke_endpoint.py --local-model artifacts/model             # score a few real applications
 ```
+Fairness comparison: rerun training with `--exclude CODE_GENDER,AGE_YEARS` (or `--exclude ""` for no exclusions).
+All other settings (LightGBM parameters, costs, AUC gate) are in `src/loan_risk/config.yaml`.
+
+### 4. Run the tests
+From `loan_risk/`, run `pytest -q`. The tests use synthetic data, so they work without the Kaggle download.
+
+### 5. Optional: run on AWS SageMaker
+Needs an AWS account, the AWS CLI configured (`aws configure`, including a region), and the AWS extras
+(from the repo root: `pip install -e "./loan_risk[dev,aws]"`). The commands below use bash syntax (Git Bash on Windows).
+**This costs money**, mostly the endpoint (an `ml.m5.large` running 24/7). Delete it when you are done (last command).
+Run from `loan_risk/`, and replace `<region>` and `<account>` with your own:
+```bash
+# one-time: execution role that SageMaker jobs run as
+aws iam create-role --role-name SageMakerLoanRiskRole --assume-role-policy-document file://aws/sagemaker-trust.json
+aws iam attach-role-policy --role-name SageMakerLoanRiskRole --policy-arn arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+ROLE=arn:aws:iam::<account>:role/SageMakerLoanRiskRole
+BUCKET=sagemaker-<region>-<account>        # SageMaker's default bucket name
+
+# upload the parquet data as snapshot v1
+aws s3 mb s3://$BUCKET                       # skip if the bucket already exists
+aws s3 sync ../data/parquet s3://$BUCKET/loan-risk/raw/v1/
+
+# create the pipeline and start a run (features -> train -> evaluate -> AUC gate -> register)
+python pipelines/build_pipeline.py --role-arn $ROLE --start
+# check progress; repeat until it says Succeeded
+aws sagemaker list-pipeline-executions --pipeline-name loan-risk-pipeline --query "PipelineExecutionSummaries[0].PipelineExecutionStatus"
+
+# after the run: review and approve the model, deploy, test, and tear down
+python pipelines/manage_model.py list
+python pipelines/manage_model.py approve
+python pipelines/manage_model.py deploy --role-arn $ROLE                  # add --serverless for pay-per-request
+python pipelines/invoke_endpoint.py --endpoint-name loan-risk-endpoint --local-model artifacts/model
+python pipelines/manage_model.py delete                                   # stop paying for the endpoint
+```
+`manage_model.py delete` removes only the endpoint. To remove everything, also delete the pipeline, the
+`loan-risk` model package group, the S3 data and the IAM role.
 
 ## AWS architecture
 ```
