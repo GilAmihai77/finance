@@ -5,6 +5,18 @@ into an **Approve / Review / Reject** decision with a cost-based threshold, and 
 with SHAP reason codes. Deployed as a SageMaker Pipeline with a quality gate, Model Registry approval,
 and a monitored endpoint.
 
+## Data and credits
+This project uses the **[Home Credit Default Risk](https://www.kaggle.com/competitions/home-credit-default-risk)**
+dataset, provided by [Home Credit Group](https://www.homecredit.net/) and hosted on [Kaggle](https://www.kaggle.com/).
+Many thanks to Home Credit for releasing the data and to Kaggle for hosting the competition.
+
+The data is **not included in this repository**. The competition rules do not allow it to be redistributed, and the
+notebook outputs are stripped before commit for the same reason. To run the project, accept the competition rules on
+Kaggle, then download the data with `home_credit_eda.ipynb` (it needs a Kaggle API token) into `data/`.
+
+> Anna Montoya, inversion, KirillOdintsov, and Martin Kotek. *Home Credit Default Risk*.
+> https://kaggle.com/competitions/home-credit-default-risk, 2018. Kaggle.
+
 ## Results (local run, CODE_GENDER excluded)
 | | AUC | Gini | KS | Brier | mean PD vs default rate |
 |---|---|---|---|---|---|
